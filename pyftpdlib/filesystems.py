@@ -26,6 +26,7 @@ except ImportError:
 from ._compat import PY3
 from ._compat import u
 from ._compat import unicode
+import re
 
 
 __all__ = ['FilesystemError', 'AbstractedFS']
@@ -86,11 +87,17 @@ class AbstractedFS(object):
     """
 
     def __init__(self, root, cmd_channel):
+        print ("AbstractedFS", root, cmd_channel)
+        print (cmd_channel.authorizer)
+        print (cmd_channel.username)
+        print (cmd_channel.password)
+
         """
          - (str) root: the user "real" home directory (e.g. '/home/user')
          - (instance) cmd_channel: the FTPHandler class instance
         """
         assert isinstance(root, unicode)
+        assert cmd_channel.thinknum_history is not None
         # Set initial current working directory.
         # By default initial cwd is set to "/" to emulate a chroot jail.
         # If a different behavior is desired (e.g. initial cwd = root,
@@ -99,15 +106,18 @@ class AbstractedFS(object):
         self._cwd = u('/')
         self._root = root
         self.cmd_channel = cmd_channel
+        self.thinknum_history = cmd_channel.thinknum_history
 
     @property
     def root(self):
         """The user home directory."""
+        print ("root")
         return self._root
 
     @property
     def cwd(self):
         """The user current working directory."""
+        print ("cwd")
         return self._cwd
 
     @root.setter
@@ -199,6 +209,7 @@ class AbstractedFS(object):
         p = p[len(self.root):]
         if not p.startswith('/'):
             p = '/' + p
+        print ("fs2ftp", fspath, p)
         return p
 
     def validpath(self, path):
@@ -226,14 +237,37 @@ class AbstractedFS(object):
 
     def open(self, filename, mode):
         """Open a file returning its handler."""
+        print ("open", filename, mode)
+
+        # TODO
         assert isinstance(filename, unicode), filename
-        return open(filename, mode)
+        if not re.match(
+            '^{root}/[a-z_]+/[0-9-]+.csv$'.format(root=self.root),
+            filename
+        ):
+            raise Exception('Invalid filename')
+
+        dataset_id = filename.split('/')[-2]
+        history_date = filename.split("/")[-1].split('.')[0]
+        presigned_url = self.thinknum_history.get_presigned_url(
+            filename.split('/')[-2],                # dataset_id
+            filename.split("/")[-1].split('.')[0]   # history_date
+        )
+        print (presigned_url)
+
+        import smart_open
+        return smart_open.open(presigned_url, 'rb')
+        # 'https://thinknum-history.s3.amazonaws.com/job_listings/2020-07-24.csv?response-content-type=text%2Fcsv&AWSAccessKeyId=AKIA6PBBYR5XCTTRGZZV&Expires=1599258627&Signature=cM0HQfHnXmKAXXnYiHLZwbQHS4k%3D',
+
+        # return open(filename, mode)
+        # return open('/Users/sangwonseo/dev_projects/ftp_directory/job_listings/test.txt', 'rb')
 
     def mkstemp(self, suffix='', prefix='', dir=None, mode='wb'):
         """A wrap around tempfile.mkstemp creating a file with a unique
         name.  Unlike mkstemp it returns an object with a file-like
         interface.
         """
+        print ("mkstemp", suffix, prefix, dir, mode)
         class FileWrapper:
 
             def __init__(self, fd, name):
@@ -257,43 +291,71 @@ class AbstractedFS(object):
         it is vital that `cwd` attribute gets set.
         """
         # note: process cwd will be reset by the caller
+        print ("chdir", path)
         assert isinstance(path, unicode), path
-        os.chdir(path)
+        # os.chdir(path)
+        if path == self.root:
+            pass
+        elif re.match(
+            '^{root}/[a-z_]+$'.format(root=self.root),
+            path
+        ):
+            pass
+        else:
+            os.chdir(path)
         self.cwd = self.fs2ftp(path)
 
     def mkdir(self, path):
         """Create the specified directory."""
+        print ("mkdir", path)
         assert isinstance(path, unicode), path
         os.mkdir(path)
 
     def listdir(self, path):
         """List the content of a directory."""
+        print ("listdir", path)
         assert isinstance(path, unicode), path
-        return os.listdir(path)
+        # return os.listdir(path)
+        # 1. TODO
+        if path == self.root:
+            # root
+            return [item['id'] for item in self.thinknum_history.get_dataset_list()]
+        elif re.match(
+            '^{root}/[a-z_]+$'.format(root=self.root),
+            path
+        ):
+            # root/{dataset_id}
+            dataset_id = path[len(self.root) + 1:]
+            return ["{historical_date}.csv".format(historical_date=item) for item in self.thinknum_history.get_history_list(dataset_id=dataset_id)]
 
     def listdirinfo(self, path):
         """List the content of a directory."""
+        print ("listdirinfo", path)
         assert isinstance(path, unicode), path
         return os.listdir(path)
 
     def rmdir(self, path):
         """Remove the specified directory."""
+        print ("rmdir", path)
         assert isinstance(path, unicode), path
         os.rmdir(path)
 
     def remove(self, path):
         """Remove the specified file."""
+        print ("remove", path)
         assert isinstance(path, unicode), path
         os.remove(path)
 
     def rename(self, src, dst):
         """Rename the specified src file to the dst filename."""
+        print ("rename", path)
         assert isinstance(src, unicode), src
         assert isinstance(dst, unicode), dst
         os.rename(src, dst)
 
     def chmod(self, path, mode):
         """Change file/directory mode."""
+        print ("chmod", path)
         assert isinstance(path, unicode), path
         if not hasattr(os, 'chmod'):
             raise NotImplementedError
@@ -303,10 +365,12 @@ class AbstractedFS(object):
         """Perform a stat() system call on the given path."""
         # on python 2 we might also get bytes from os.lisdir()
         # assert isinstance(path, unicode), path
+        print ("stat", path)
         return os.stat(path)
 
     def utime(self, path, timeval):
         """Perform a utime() call on the given path"""
+        print ("utime", path, timeval)
         # utime expects a int/float (atime, mtime) in seconds
         # thus, setting both access and modify time to timeval
         return os.utime(path, (timeval, timeval))
@@ -332,27 +396,40 @@ class AbstractedFS(object):
 
     def isfile(self, path):
         """Return True if path is a file."""
+        print ("isfile", path)
         assert isinstance(path, unicode), path
         return os.path.isfile(path)
 
     def islink(self, path):
         """Return True if path is a symbolic link."""
+        print ("islink", path)
         assert isinstance(path, unicode), path
         return os.path.islink(path)
 
     def isdir(self, path):
         """Return True if path is a directory."""
+        print ("isdir", path)
         assert isinstance(path, unicode), path
-        return os.path.isdir(path)
+        if self.root == path:
+            return True
+        elif re.match(
+            '^{root}/[a-z_]+$'.format(root=self.root),
+            path
+        ):
+            return True
+        return False
+        # return os.path.isdir(path)
 
     def getsize(self, path):
         """Return the size of the specified file in bytes."""
+        print ("getsize", path)
         assert isinstance(path, unicode), path
         return os.path.getsize(path)
 
     def getmtime(self, path):
         """Return the last modified time as a number of seconds since
         the epoch."""
+        print ("getmtime", path)
         assert isinstance(path, unicode), path
         return os.path.getmtime(path)
 
@@ -361,6 +438,7 @@ class AbstractedFS(object):
         symbolic links encountered in the path (if they are
         supported by the operating system).
         """
+        print ("realpath", path)
         assert isinstance(path, unicode), path
         return os.path.realpath(path)
 
@@ -368,6 +446,7 @@ class AbstractedFS(object):
         """Return True if path refers to an existing path, including
         a broken or circular symbolic link.
         """
+        print ("lexists", path)
         assert isinstance(path, unicode), path
         return os.path.lexists(path)
 
@@ -402,6 +481,7 @@ class AbstractedFS(object):
     # --- Listing utilities
 
     def format_list(self, basedir, listing, ignore_err=True):
+        print ("format_list", basedir, listing, ignore_err)
         """Return an iterator object that yields the entries of given
         directory emulating the "/bin/ls -lA" UNIX command output.
 
@@ -438,71 +518,100 @@ class AbstractedFS(object):
         SIX_MONTHS = 180 * 24 * 60 * 60
         readlink = getattr(self, 'readlink', None)
         now = time.time()
-        for basename in listing:
-            if not PY3:
-                try:
-                    file = os.path.join(basedir, basename)
-                except UnicodeDecodeError:
-                    # (Python 2 only) might happen on filesystem not
-                    # supporting UTF8 meaning os.listdir() returned a list
-                    # of mixed bytes and unicode strings:
-                    # http://goo.gl/6DLHD
-                    # http://bugs.python.org/issue683592
-                    file = os.path.join(bytes(basedir), bytes(basename))
-                    if not isinstance(basename, unicode):
-                        basename = unicode(basename, 'utf8', 'ignore')
-            else:
-                file = os.path.join(basedir, basename)
-            try:
-                st = self.lstat(file)
-            except (OSError, FilesystemError):
-                if ignore_err:
-                    continue
-                raise
 
-            perms = _filemode(st.st_mode)  # permissions
-            nlinks = st.st_nlink  # number of links to inode
-            if not nlinks:  # non-posix system, let's use a bogus value
-                nlinks = 1
-            size = st.st_size  # file size
-            uname = get_user_by_uid(st.st_uid)
-            gname = get_group_by_gid(st.st_gid)
-            mtime = timefunc(st.st_mtime)
-            # if modification time > 6 months shows "month year"
-            # else "month hh:mm";  this matches proftpd format, see:
-            # https://github.com/giampaolo/pyftpdlib/issues/187
-            if (now - st.st_mtime) > SIX_MONTHS:
-                fmtstr = "%d  %Y"
-            else:
-                fmtstr = "%d %H:%M"
-            try:
-                mtimestr = "%s %s" % (_months_map[mtime.tm_mon],
-                                      time.strftime(fmtstr, mtime))
-            except ValueError:
-                # It could be raised if last mtime happens to be too
-                # old (prior to year 1900) in which case we return
-                # the current time as last mtime.
-                mtime = timefunc()
-                mtimestr = "%s %s" % (_months_map[mtime.tm_mon],
-                                      time.strftime("%d %H:%M", mtime))
+        # 2. TODO
+        if basedir == '/Users/sangwonseo/dev_projects/ftp_directory':
+            for basename in listing:
+                line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
+                    'drwxr-xr-x',
+                    4,
+                    'sangwonseo',
+                    'staff',
+                    '128',
+                    'Aug 05 20:13',
+                    basename
+                )
+                print (line)
+                yield line.encode('utf8', self.cmd_channel.unicode_errors)
+        else:
+            for basename in listing:
+                line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
+                    '-rw-r--r--',
+                    1,
+                    'sangwonseo',
+                    'staff',
+                    '128',
+                    'Aug 05 20:13',
+                    basename
+                )
+                print (line)
+                yield line.encode('utf8', self.cmd_channel.unicode_errors)
+            # if not PY3:
+            #     try:
+            #         file = os.path.join(basedir, basename)
+            #     except UnicodeDecodeError:
+            #         # (Python 2 only) might happen on filesystem not
+            #         # supporting UTF8 meaning os.listdir() returned a list
+            #         # of mixed bytes and unicode strings:
+            #         # http://goo.gl/6DLHD
+            #         # http://bugs.python.org/issue683592
+            #         file = os.path.join(bytes(basedir), bytes(basename))
+            #         if not isinstance(basename, unicode):
+            #             basename = unicode(basename, 'utf8', 'ignore')
+            # else:
+            #     file = os.path.join(basedir, basename)
+            # try:
+            #     st = self.lstat(file)
+            # except (OSError, FilesystemError):
+            #     if ignore_err:
+            #         continue
+            #     raise
 
-            # same as stat.S_ISLNK(st.st_mode) but slighlty faster
-            islink = (st.st_mode & 61440) == stat.S_IFLNK
-            if islink and readlink is not None:
-                # if the file is a symlink, resolve it, e.g.
-                # "symlink -> realfile"
-                try:
-                    basename = basename + " -> " + readlink(file)
-                except (OSError, FilesystemError):
-                    if not ignore_err:
-                        raise
+            # perms = _filemode(st.st_mode)  # permissions
+            # nlinks = st.st_nlink  # number of links to inode
+            # if not nlinks:  # non-posix system, let's use a bogus value
+            #     nlinks = 1
+            # size = st.st_size  # file size
+            # uname = get_user_by_uid(st.st_uid)
+            # gname = get_group_by_gid(st.st_gid)
+            # mtime = timefunc(st.st_mtime)
+            # # if modification time > 6 months shows "month year"
+            # # else "month hh:mm";  this matches proftpd format, see:
+            # # https://github.com/giampaolo/pyftpdlib/issues/187
+            # if (now - st.st_mtime) > SIX_MONTHS:
+            #     fmtstr = "%d  %Y"
+            # else:
+            #     fmtstr = "%d %H:%M"
+            # try:
+            #     mtimestr = "%s %s" % (_months_map[mtime.tm_mon],
+            #                           time.strftime(fmtstr, mtime))
+            # except ValueError:
+            #     # It could be raised if last mtime happens to be too
+            #     # old (prior to year 1900) in which case we return
+            #     # the current time as last mtime.
+            #     mtime = timefunc()
+            #     mtimestr = "%s %s" % (_months_map[mtime.tm_mon],
+            #                           time.strftime("%d %H:%M", mtime))
+
+            # # same as stat.S_ISLNK(st.st_mode) but slighlty faster
+            # islink = (st.st_mode & 61440) == stat.S_IFLNK
+            # if islink and readlink is not None:
+            #     # if the file is a symlink, resolve it, e.g.
+            #     # "symlink -> realfile"
+            #     try:
+            #         basename = basename + " -> " + readlink(file)
+            #     except (OSError, FilesystemError):
+            #         if not ignore_err:
+            #             raise
 
             # formatting is matched with proftpd ls output
-            line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
-                perms, nlinks, uname, gname, size, mtimestr, basename)
-            yield line.encode('utf8', self.cmd_channel.unicode_errors)
+            # line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
+            #     perms, nlinks, uname, gname, size, mtimestr, basename)
+            # print line
+            # print perms, nlinks, uname, gname, size, mtimestr, basename
 
     def format_mlsx(self, basedir, listing, perms, facts, ignore_err=True):
+        print ('format_mlsx', basedir, listing, perms, facts, ignore_err)
         """Return an iterator object that yields the entries of a given
         directory or of a single file in a form suitable with MLSD and
         MLST commands.

@@ -152,6 +152,7 @@ class DummyAuthorizer(object):
         self.user_table[username]['operms'][directory] = perm, recursive
 
     def validate_authentication(self, username, password, handler):
+        print ("validate_authentication")
         """Raises AuthenticationFailed if supplied username and
         password don't match the stored credentials, else return
         None.
