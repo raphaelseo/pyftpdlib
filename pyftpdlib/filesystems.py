@@ -27,6 +27,7 @@ from ._compat import PY3
 from ._compat import u
 from ._compat import unicode
 import re
+import datetime
 
 
 __all__ = ['FilesystemError', 'AbstractedFS']
@@ -87,11 +88,6 @@ class AbstractedFS(object):
     """
 
     def __init__(self, root, cmd_channel):
-        print ("AbstractedFS", root, cmd_channel)
-        print (cmd_channel.authorizer)
-        print (cmd_channel.username)
-        print (cmd_channel.password)
-
         """
          - (str) root: the user "real" home directory (e.g. '/home/user')
          - (instance) cmd_channel: the FTPHandler class instance
@@ -111,13 +107,11 @@ class AbstractedFS(object):
     @property
     def root(self):
         """The user home directory."""
-        print ("root")
         return self._root
 
     @property
     def cwd(self):
         """The user current working directory."""
-        print ("cwd")
         return self._cwd
 
     @root.setter
@@ -209,7 +203,6 @@ class AbstractedFS(object):
         p = p[len(self.root):]
         if not p.startswith('/'):
             p = '/' + p
-        print ("fs2ftp", fspath, p)
         return p
 
     def validpath(self, path):
@@ -237,7 +230,6 @@ class AbstractedFS(object):
 
     def open(self, filename, mode):
         """Open a file returning its handler."""
-        print ("open", filename, mode)
 
         # TODO
         assert isinstance(filename, unicode), filename
@@ -253,7 +245,6 @@ class AbstractedFS(object):
             filename.split('/')[-2],                # dataset_id
             filename.split("/")[-1].split('.')[0]   # history_date
         )
-        print (presigned_url)
 
         import smart_open
         return smart_open.open(presigned_url, 'rb')
@@ -267,7 +258,6 @@ class AbstractedFS(object):
         name.  Unlike mkstemp it returns an object with a file-like
         interface.
         """
-        print ("mkstemp", suffix, prefix, dir, mode)
         class FileWrapper:
 
             def __init__(self, fd, name):
@@ -291,7 +281,6 @@ class AbstractedFS(object):
         it is vital that `cwd` attribute gets set.
         """
         # note: process cwd will be reset by the caller
-        print ("chdir", path)
         assert isinstance(path, unicode), path
         # os.chdir(path)
         if path == self.root:
@@ -307,13 +296,11 @@ class AbstractedFS(object):
 
     def mkdir(self, path):
         """Create the specified directory."""
-        print ("mkdir", path)
         assert isinstance(path, unicode), path
         os.mkdir(path)
 
     def listdir(self, path):
         """List the content of a directory."""
-        print ("listdir", path)
         assert isinstance(path, unicode), path
         # return os.listdir(path)
         # 1. TODO
@@ -330,32 +317,27 @@ class AbstractedFS(object):
 
     def listdirinfo(self, path):
         """List the content of a directory."""
-        print ("listdirinfo", path)
         assert isinstance(path, unicode), path
         return os.listdir(path)
 
     def rmdir(self, path):
         """Remove the specified directory."""
-        print ("rmdir", path)
         assert isinstance(path, unicode), path
         os.rmdir(path)
 
     def remove(self, path):
         """Remove the specified file."""
-        print ("remove", path)
         assert isinstance(path, unicode), path
         os.remove(path)
 
     def rename(self, src, dst):
         """Rename the specified src file to the dst filename."""
-        print ("rename", path)
         assert isinstance(src, unicode), src
         assert isinstance(dst, unicode), dst
         os.rename(src, dst)
 
     def chmod(self, path, mode):
         """Change file/directory mode."""
-        print ("chmod", path)
         assert isinstance(path, unicode), path
         if not hasattr(os, 'chmod'):
             raise NotImplementedError
@@ -365,12 +347,10 @@ class AbstractedFS(object):
         """Perform a stat() system call on the given path."""
         # on python 2 we might also get bytes from os.lisdir()
         # assert isinstance(path, unicode), path
-        print ("stat", path)
         return os.stat(path)
 
     def utime(self, path, timeval):
         """Perform a utime() call on the given path"""
-        print ("utime", path, timeval)
         # utime expects a int/float (atime, mtime) in seconds
         # thus, setting both access and modify time to timeval
         return os.utime(path, (timeval, timeval))
@@ -396,19 +376,16 @@ class AbstractedFS(object):
 
     def isfile(self, path):
         """Return True if path is a file."""
-        print ("isfile", path)
         assert isinstance(path, unicode), path
         return os.path.isfile(path)
 
     def islink(self, path):
         """Return True if path is a symbolic link."""
-        print ("islink", path)
         assert isinstance(path, unicode), path
         return os.path.islink(path)
 
     def isdir(self, path):
         """Return True if path is a directory."""
-        print ("isdir", path)
         assert isinstance(path, unicode), path
         if self.root == path:
             return True
@@ -422,14 +399,12 @@ class AbstractedFS(object):
 
     def getsize(self, path):
         """Return the size of the specified file in bytes."""
-        print ("getsize", path)
         assert isinstance(path, unicode), path
         return os.path.getsize(path)
 
     def getmtime(self, path):
         """Return the last modified time as a number of seconds since
         the epoch."""
-        print ("getmtime", path)
         assert isinstance(path, unicode), path
         return os.path.getmtime(path)
 
@@ -438,7 +413,6 @@ class AbstractedFS(object):
         symbolic links encountered in the path (if they are
         supported by the operating system).
         """
-        print ("realpath", path)
         assert isinstance(path, unicode), path
         return os.path.realpath(path)
 
@@ -446,7 +420,6 @@ class AbstractedFS(object):
         """Return True if path refers to an existing path, including
         a broken or circular symbolic link.
         """
-        print ("lexists", path)
         assert isinstance(path, unicode), path
         return os.path.lexists(path)
 
@@ -481,7 +454,7 @@ class AbstractedFS(object):
     # --- Listing utilities
 
     def format_list(self, basedir, listing, ignore_err=True):
-        print ("format_list", basedir, listing, ignore_err)
+        # print ("format_list", basedir, listing, ignore_err)
         """Return an iterator object that yields the entries of given
         directory emulating the "/bin/ls -lA" UNIX command output.
 
@@ -520,32 +493,35 @@ class AbstractedFS(object):
         now = time.time()
 
         # 2. TODO
-        if basedir == '/Users/sangwonseo/dev_projects/ftp_directory':
+        if basedir == self.root:
             for basename in listing:
                 line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
                     'drwxr-xr-x',
                     4,
-                    'sangwonseo',
-                    'staff',
-                    '128',
-                    'Aug 05 20:13',
+                    'ec2-user',
+                    'ec2-user',
+                    '0',
+                    datetime.datetime.today().strftime('%b %d %H:%M'),
                     basename
                 )
-                print (line)
                 yield line.encode('utf8', self.cmd_channel.unicode_errors)
-        else:
+        elif re.match(
+            '^{root}/[a-z_]+$'.format(root=self.root),
+            basedir
+        ): 
             for basename in listing:
                 line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
                     '-rw-r--r--',
                     1,
-                    'sangwonseo',
-                    'staff',
-                    '128',
-                    'Aug 05 20:13',
+                    'ec2-user',
+                    'ec2-user',
+                    '0',
+                    datetime.datetime.today().strftime('%b %d %H:%M'),
                     basename
                 )
-                print (line)
                 yield line.encode('utf8', self.cmd_channel.unicode_errors)
+        else:
+            return None
             # if not PY3:
             #     try:
             #         file = os.path.join(basedir, basename)
@@ -607,8 +583,7 @@ class AbstractedFS(object):
             # formatting is matched with proftpd ls output
             # line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
             #     perms, nlinks, uname, gname, size, mtimestr, basename)
-            # print line
-            # print perms, nlinks, uname, gname, size, mtimestr, basename
+            # yield line.encode('utf8', self.cmd_channel.unicode_errors)
 
     def format_mlsx(self, basedir, listing, perms, facts, ignore_err=True):
         print ('format_mlsx', basedir, listing, perms, facts, ignore_err)

@@ -15,6 +15,7 @@ import time
 import traceback
 import warnings
 from datetime import datetime
+from thinknum import History
 
 try:
     import pwd
@@ -64,26 +65,21 @@ def _import_sendfile():
     # ...otherwise fallback on using third-party pysendfile module:
     # https://github.com/giampaolo/pysendfile/
     if os.name == 'posix':
-        # try:
-        #     print ("os.sendfile")
-        #     return os.sendfile  # py >= 3.3
-        # except AttributeError:
-        #     try:
-        #         print ("sendfile")
-        #         import sendfile as sf
-        #         # dirty hack to detect whether old 1.2.4 version is installed
-        #         if hasattr(sf, 'has_sf_hdtr'):
-        #             raise ImportError
-        #         return sf.sendfile
-        #     except ImportError:
-        #         pass
-        import sendfile as sf
-        return sf.sendfile
+        try:
+            return os.sendfile  # py >= 3.3
+        except AttributeError:
+            try:
+                import sendfile as sf
+                # dirty hack to detect whether old 1.2.4 version is installed
+                if hasattr(sf, 'has_sf_hdtr'):
+                    raise ImportError
+                return sf.sendfile
+            except ImportError:
+                pass
     return None
 
 
-# sendfile = _import_sendfile()
-sendfile = os.sendfile
+sendfile = _import_sendfile()
 
 proto_cmds = {
     'ABOR': dict(
@@ -650,7 +646,6 @@ class DTPHandler(AsyncChat):
         AsyncChat.push(self, data)
 
     def push_with_producer(self, producer):
-        print ("push_with_producer", self.file_obj, type(self.file_obj), self.use_sendfile())
         self._initialized = True
         self.modify_ioloop_events(self.ioloop.WRITE)
         self._wanted_io_events = self.ioloop.WRITE
@@ -677,17 +672,9 @@ class DTPHandler(AsyncChat):
     def initiate_sendfile(self):
         """A wrapper around sendfile."""
         try:
-            print (self._fileno, self._filefd, self._offset, self.ac_out_buffer_size)
-            print (self._fileno, type(self._fileno))
-            print (self._filefd, type(self._filefd))
-            print (self._offset, type(self._offset))
-            print (self.ac_out_buffer_size, type(self.ac_out_buffer_size))
             sent = sendfile(self._fileno, self._filefd, self._offset,
                             self.ac_out_buffer_size)
         except OSError as err:
-            import traceback
-            print ("OSError")
-            print (traceback.format_exc())
             if err.errno in _ERRNOS_RETRY or err.errno == errno.EBUSY:
                 return
             elif err.errno in _ERRNOS_DISCONNECTED:
@@ -2157,7 +2144,6 @@ class FTPHandler(AsyncChat):
         # --- data transferring
 
     def ftp_LIST(self, path):
-        print ("ftp_LIST", path)
         """Return a list of files in the specified directory to the
         client.
         On success return the directory path, else None.
@@ -2278,23 +2264,21 @@ class FTPHandler(AsyncChat):
             why = _strerror(err)
             self.respond('550 %s.' % why)
         else:
-            perms = self.authorizer.get_perms(self.username)
-            iterator = self.fs.format_mlsx(path, listing, perms,
-                                           self._current_facts)
+            # perms = self.authorizer.get_perms(self.username)
+            # iterator = self.fs.format_mlsx(path, listing, perms,
+            #                                self._current_facts)
+            iterator = self.fs.format_list(path, listing)
             producer = BufferedIteratorProducer(iterator)
             self.push_dtp_data(producer, isproducer=True, cmd="MLSD")
             return path
 
     def ftp_RETR(self, file):
-        # TODO
-        print ("ftp_RETR", file, self.data_channel, self._current_type, self._restart_position)
         """Retrieve the specified file (transfer from the server to the
         client).  On success return the file path else None.
         """
         rest_pos = self._restart_position
         self._restart_position = 0
         try:
-            # TODO
             fd = self.run_as_current_user(self.fs.open, file, 'rb')
         except (EnvironmentError, FilesystemError) as err:
             why = _strerror(err)
@@ -2588,14 +2572,10 @@ class FTPHandler(AsyncChat):
         self.password = password
         self.attempted_logins = 0
 
-        print (self.username)
-        print (self.password)
-        # TODO
         self.fs = self.abstracted_fs(home, self)
         self.on_login(self.username)
 
     def ftp_PASS(self, line):
-        print ("ftp_PASS")
         """Check username's password against the authorizer."""
         if self.authenticated:
             self.respond("503 User already authenticated.")
@@ -2606,8 +2586,7 @@ class FTPHandler(AsyncChat):
 
         try:
             self.authorizer.validate_authentication(self.username, line, self)
-            # TODO authentication
-            from thinknum import History
+            
             self.thinknum_history = History(
                 client_id=self.username,
                 client_secret=line
@@ -2909,7 +2888,6 @@ class FTPHandler(AsyncChat):
             self.respond('501 Unrecognized MODE type.')
 
     def ftp_STAT(self, path):
-        print ("ftp_STAT")
         """Return statistics about current ftp session. If an argument
         is provided return directory listing over command channel.
 
